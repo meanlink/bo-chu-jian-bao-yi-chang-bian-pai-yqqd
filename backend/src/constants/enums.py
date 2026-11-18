@@ -8,3 +8,15 @@ class JobStatus(str, Enum):
     running = 'running'
     completed = 'completed'
     failed = 'failed'
+
+class HandoverStatus(str, Enum):
+    pending = 'pending'
+    running = 'running'
+    completed = 'completed'
+    failed = 'failed'
+
+class HandoverPhase(str, Enum):
+    datasets = 'datasets'
+    jobs = 'jobs'
+    deliveries = 'deliveries'
+    done = 'done'

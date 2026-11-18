@@ -3,8 +3,8 @@
 异常摘要与定时分发的真实业务分析小型项目。完整模拟客户、痛点、上下游、算法公式与一天工作剧本见 [BUSINESS.md](BUSINESS.md)。
 
 ## 模块与业务流程
-数据接入（JSON/CSV、字段验证、批次指纹）→ 参数化分析（异步 Python worker）→ 结果复核（指标、图形、明细、解释、批准）→ 定时分发（本地收件箱、CSV/JSON、SHA256）；另有业务总览和审计轨迹。
-三个贯穿全栈的实体：Dataset 数据批次、Job 分析任务、Report 分发计划；辅助 User、Audit、Delivery。
+数据接入（JSON/CSV、字段验证、批次指纹）→ 参数化分析（异步 Python worker）→ 结果复核（指标、图形、明细、解释、批准）→ 定时分发（本地收件箱、CSV/JSON、SHA256）→ 交班现场封存；另有业务总览和审计轨迹。
+四个贯穿全栈的实体：Dataset 数据批次、Job 分析任务、Report 分发计划、Handover 交班现场；辅助 User、Audit、Delivery。
 
 ## 快速启动
 ```bash
@@ -29,12 +29,15 @@ Python 3.12 / FastAPI / SQLAlchemy / NumPy / SciPy / scikit-learn；MySQL 8.0；
 ## 目录与工程约定
 backend/src/{models,schemas,services,routes,controllers,middlewares,constants,config,utils}；backend/scripts/seed_demo.py；backend/migrations/initial.py。
 frontend/src/{api,stores,types,components/common,hooks,pages,router,utils,constants}。
-Role 枚举：admin/analyst/viewer；JobStatus：queued/running/completed/failed。后端 backend/src/constants/enums.py，前端 frontend/src/constants/enums.js；路由权限在 middlewares/auth.py；页面按相同角色控制操作入口。
+Role 枚举：admin/analyst/viewer；JobStatus：queued/running/completed/failed；HandoverStatus：pending/running/completed/failed。后端 backend/src/constants/enums.py，前端 frontend/src/constants/enums.js；路由权限在 middlewares/auth.py；页面按相同角色控制操作入口。
 
 ## 环境变量与 Docker
 COMPOSE_PROJECT_NAME=bulletin-ewma；FRONTEND_PORT=18219；BACKEND_PORT=19219；DB_PORT=17719；DB_PASSWORD、JWT_SECRET 见 .env.example；SEED_DEMO 默认 true。共享命名产物卷供后端下载与 worker 写入，数据库/Redis 各持久卷。
 恰好五服务均有健康检查。Redis 队列加 SQL 排队状态兜底；worker 按 next_run 生成本地收件箱文件。周期 60 秒至 30 天。分发结果为批准分析的固定快照；若需新数据重新计算并建立新计划。当前不连接邮件或企业聊天。
 错误响应、请求编号、Redis 每 IP 每分钟 240 次限流、JWT 和数据库操作审计。演示密钥与密码仅供本机模拟；生产部署前配置独立密钥与账号。
+
+### 交班现场封存
+登记交班点时固定 cutoff；worker 分批归档该时点前已入库的数据批次、分析任务状态（含当时是否已批准）与已投递简报，并按任务、批次、简报回填出处。封存与批准、投递并发时只收交班前已生效的状态：之后完成的计算记为“计算中”，之后的批准不计入，之后的投递不入册。归档按阶段游标提交，worker 中断后从原交班点继续，`(handover_id, 行 id)` 唯一约束保证重试不重复生成。完成后写入现场 SHA256 指纹；工作台显示待封存进度，封存后可在“交班现场”核对当时状态与简报出处，后续补算和分发只新增新行，不改写旧现场。
 
 ## 数据与验收
 所有数据为固定随机种子生成的模拟业务数据，不能作为实际生产决策证据。项目独立算法、输入边界及业务局限详见 BUSINESS.md。测试与截图统一存放 ../../test-artifacts/gb-1020/，源码不含日志/截图/测试报告。

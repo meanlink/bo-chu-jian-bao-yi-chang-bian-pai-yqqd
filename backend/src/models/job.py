@@ -13,4 +13,6 @@ class Job(Base):
     approved: Mapped[bool] = mapped_column(Boolean, default=False)
     created_by: Mapped[int] = mapped_column(ForeignKey('users.id'))
     created_at: Mapped[float] = mapped_column(Double)
+    started_at: Mapped[float | None] = mapped_column(Double, nullable=True)
     finished_at: Mapped[float | None] = mapped_column(Double, nullable=True)
+    approved_at: Mapped[float | None] = mapped_column(Double, nullable=True)

@@ -4,16 +4,17 @@ from sqlalchemy import select
 from redis import Redis
 from src.config.database import Session
 from src.config.settings import REDIS_URL
-from src.models import Job, Dataset, Report
+from src.models import Job, Dataset, Report, Handover
 from src.services.business import analyze
 from src.services.reports import deliver
+from src.services import handover
 from src.services.audit import record
 logging.basicConfig(level=logging.INFO)
 def execute(job_id):
     with Session() as db:
         j=db.get(Job,job_id)
         if not j or j.status!='queued':return
-        j.status='running'; db.commit()
+        j.status='running'; j.started_at=j.started_at or time.time(); db.commit()
         try:
             d=db.get(Dataset,j.dataset_id)
             result=analyze(d.records,j.params)
@@ -34,6 +35,26 @@ def tick():
             d=deliver(db,r)
             if d:record(db,'worker','report.delivered',{'id':r.id,'delivery':d.id})
         db.commit()
+    seal_pending()
+
+def seal_pending():
+    """封存在 worker 内分批推进；中断后按原交班点游标继续。"""
+    with Session() as db:
+        ids=list(db.scalars(select(Handover.id).where(Handover.status.in_(('pending','running'))).order_by(Handover.id).limit(3)))
+    for handover_id in ids:
+        with Session() as db:
+            h=db.get(Handover,handover_id)
+            if not h or h.status=='completed':continue
+            try:
+                handover.advance(db,h)
+            except Exception as exc:
+                logging.exception('Handover sealing failed')
+                db.rollback()
+                h=db.get(Handover,handover_id)
+                if h and h.status!='completed':
+                    h.status='failed';h.error=str(exc)[:990]
+                    record(db,'worker','handover.failed',{'id':h.id,'error':h.error})
+                    db.commit()
 def main():
     r=Redis.from_url(REDIS_URL,socket_timeout=3)
     # This Compose stack has a single worker. A crash must not strand its jobs.

@@ -2,9 +2,10 @@ import time, json
 from sqlalchemy import select, func
 from src.config.database import Session
 from migrations.initial import migrate
-from src.models import User, Dataset, Job, Report, Delivery, Audit
+from src.models import User, Dataset, Job, Report, Delivery, Audit, Handover
 from src.services.business import metadata, seed_records, analyze
 from src.services.reports import deliver
+from src.services import handover
 from src.utils.security import hash_password
 from src.utils.serialization import checksum
 def seed():
@@ -26,13 +27,25 @@ def seed():
             result=analyze(d.records,params)
             json.dumps(result,ensure_ascii=False,allow_nan=False)
             admin=db.scalar(select(User).where(User.role=='admin'))
-            j=Job(name='基线复核 · '+m['name'],dataset_id=d.id,params=params,status='completed',result=result,created_by=admin.id,created_at=time.time()-3600,finished_at=time.time()-3595,approved=True)
+            j=Job(name='基线复核 · '+m['name'],dataset_id=d.id,params=params,status='completed',result=result,created_by=admin.id,created_at=time.time()-3600,started_at=time.time()-3598,finished_at=time.time()-3595,approved=True,approved_at=time.time()-3500)
             db.add(j);db.flush()
             r=Report(name='每日业务复核简报',job_id=j.id,destination='业务复核组 · 本地收件箱',interval_seconds=86400,next_run=time.time()+86400,enabled=True)
             db.add(r);db.flush();deliver(db,r)
             db.add(Audit(actor='seed',action='demo.baseline',detail={'dataset':d.id},at=time.time()))
         db.commit()
-        counts={model.__tablename__:db.scalar(select(func.count()).select_from(model)) for model in [User,Dataset,Job,Report,Delivery,Audit]}
+    seed_handover()
+    with Session() as db:
+        counts={model.__tablename__:db.scalar(select(func.count()).select_from(model)) for model in [User,Dataset,Job,Report,Delivery,Audit,Handover]}
         print(json.dumps(counts,ensure_ascii=False))
         return counts
+def seed_handover():
+    """幂等生成一个演示交班现场：只封存脚本运行前已生效的批次、状态、批准与投递。"""
+    with Session() as db:
+        if db.scalar(select(Handover).where(Handover.label=='演示交班现场')):
+            return
+        admin=db.scalar(select(User).where(User.role=='admin'))
+        h=handover.create(db,'演示交班现场',admin)
+        db.commit()
+        handover.advance(db,h)
+
 if __name__=='__main__':seed()
